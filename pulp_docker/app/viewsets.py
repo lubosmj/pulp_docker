@@ -175,3 +175,22 @@ class DockerDistributionViewSet(BaseDistributionViewSet):
     endpoint_name = 'docker'
     queryset = models.DockerDistribution.objects.all()
     serializer_class = serializers.DockerDistributionSerializer
+
+
+class TagImageViewSet(ContentViewSet):
+
+    endpoint_name = 'tag'
+    queryset = models.Manifest.objects.all()
+    serializer_class = serializers.ManifestSerializer
+    filterset_class = ManifestFilter
+
+    @transaction.atomic
+    def create(self, request):
+        serializer = serializers.TagImageSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        raise RuntimeError(str(serializer.validated_data) + '\n:::\n' + str(request.data))
+
+
+class UnTagImageViewSet(ContentViewSet):
+
+    endpoint_name = 'untag'
