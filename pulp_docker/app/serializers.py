@@ -4,12 +4,14 @@ from django.conf import settings
 
 from rest_framework import serializers
 
-from pulpcore.plugin.models import Remote
+from pulpcore.plugin.models import Remote, RepositoryVersion, Repository
 from pulpcore.plugin.serializers import (
     DetailRelatedField,
     RemoteSerializer,
     RepositoryVersionDistributionSerializer,
     SingleArtifactContentSerializer,
+    RelatedField,
+    NestedRelatedField,
 )
 
 from . import models
@@ -162,3 +164,84 @@ class DockerDistributionSerializer(RepositoryVersionDistributionSerializer):
         model = models.DockerDistribution
         fields = tuple(set(RepositoryVersionDistributionSerializer.Meta.fields) - {'base_url'}) + (
             'registry_path',)
+
+
+class ManifestTagOperationSerializer(serializers.Serializer):
+    """
+    A base serializer for tagging and untagging manifests.
+    """
+
+    repository = RelatedField(
+        required=False,
+        view_name='repositories-detail',
+        queryset=Repository.objects.all(),
+        help_text='A URI of the repository.'
+    )
+    repository_version = NestedRelatedField(
+        required=False,
+        view_name='versions-detail',
+        queryset=RepositoryVersion.objects.all(),
+        lookup_field='number',
+        parent_lookup_kwargs={'repository_pk': 'repository__pk'},
+        help_text='A URI of the repository version'
+    )
+    tag = serializers.CharField(
+        required=True,
+        help_text='A tag name'
+    )
+
+    def validate(self, data):
+        """
+        Request's data are validated and adjusted in this method.
+
+        A new dictionary object is initialized by the input data and altered afterwards.
+        When a repository version is specified only, a particular repository object is
+        retrieved from it and stored in the dictionary.
+        """
+
+        repository = data.get('repository', None)
+        repository_version = data.get('repository_version', None)
+
+        new_data = {}
+        new_data.update(data)
+
+        if repository is None:
+            if repository_version is None:
+                raise serializers.ValidationError(
+                    _("Either 'repository' or 'repository_version' needs to be specified"))
+            else:
+                new_data['repository'] = repository_version.repository
+
+        return new_data
+
+
+class ManifestTaggingSerializer(ManifestTagOperationSerializer):
+    """
+    A serializer for parsing and validating data associated with a manifest tagging.
+    """
+
+    digest = serializers.CharField(
+        required=True,
+        help_text='sha256 of the Manifest file'
+    )
+
+    def validate(self, data):
+        new_data = super().validate(data)
+
+        try:
+            # Manifest with a corresponding digest is retrieved from a database and stored
+            # in the dictionary to avoid querying the database in the ViewSet again.
+            manifest = models.Manifest.objects.get(digest=data['digest'])
+        except models.Manifest.DoesNotExist:
+            raise serializers.ValidationError(
+                _("The digest '{digest}' does not exist in the model '{model}'"
+                  .format(digest=data['digest'], model=models.Manifest.__name__)))
+
+        new_data['manifest'] = manifest
+        return new_data
+
+
+class ManifestUntaggingSerializer(ManifestTagOperationSerializer):
+    """
+    A serializer for parsing and validating data associated with a manifest untagging.
+    """
