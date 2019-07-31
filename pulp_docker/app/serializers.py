@@ -167,7 +167,7 @@ class DockerDistributionSerializer(RepositoryVersionDistributionSerializer):
             'registry_path',)
 
 
-class TagImageSerializer(RepositoryVersionDistributionSerializer):
+class TagImageSerializer(serializers.Serializer):
     repository = RelatedField(
         required=False,
         view_name='repositories-detail',
@@ -188,9 +188,10 @@ class TagImageSerializer(RepositoryVersionDistributionSerializer):
         required=True
     )
 
+    def create(self, validated_data):
+        return
+
     def validate(self, data):
-        import pydevd_pycharm
-        pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
         super().validate(data)
 
         repository = data.get('repository', None)
@@ -198,6 +199,13 @@ class TagImageSerializer(RepositoryVersionDistributionSerializer):
         if repository is None and repository_version is None:
             raise serializers.ValidationError(
                 _("Either 'repository' or 'repository_version' needs to be specified"))
+
+        try:
+            models.Manifest.objects.get(digest=data['digest'])
+        except models.Manifest.DoesNotExist:
+            raise serializers.ValidationError(
+                _("The digest '{digest}' does not exist in the model '{model}'"
+                  .format(digest=data['digest'], model=models.Manifest.__name__)))
 
         '''
         # do we need to store repo or repo_ver?

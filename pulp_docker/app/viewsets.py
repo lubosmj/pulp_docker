@@ -184,11 +184,26 @@ class TagImageViewSet(ContentViewSet):
     serializer_class = serializers.ManifestSerializer
     filterset_class = ManifestFilter
 
+    @swagger_auto_schema(
+        operation_description="Trigger an asynchronous task to create a new repository",
+        responses={202: AsyncOperationResponseSerializer}
+    )
     @transaction.atomic
     def create(self, request):
+        import pydevd_pycharm
+        pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
         serializer = serializers.TagImageSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        raise RuntimeError(str(serializer.validated_data) + '\n:::\n' + str(request.data))
+
+        result = enqueue_with_reservation(
+            tasks.create_new_repository_version
+            #[*PARAMS*],
+            #kwargs={
+                #'remote_pk': remote.pk,
+                #'repository_pk': repository.pk
+            #}
+        )
+        return OperationPostponedResponse(result, request)
 
 
 class UnTagImageViewSet(ContentViewSet):

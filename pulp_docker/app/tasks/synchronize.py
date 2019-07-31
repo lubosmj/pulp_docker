@@ -81,3 +81,7 @@ class DockerDeclarativeVersion(DeclarativeVersion):
             pipeline.append(RemoveDuplicates(new_version, **dupe_query_dict))
 
         return pipeline
+
+
+def create_new_repository_version(repository):
+    pass
