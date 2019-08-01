@@ -196,45 +196,26 @@ class TagImageSerializer(serializers.Serializer):
 
         repository = data.get('repository', None)
         repository_version = data.get('repository_version', None)
-        if repository is None and repository_version is None:
-            raise serializers.ValidationError(
-                _("Either 'repository' or 'repository_version' needs to be specified"))
+
+        new_data = {}
+
+        if repository is None:
+            if repository_version is None:
+                raise serializers.ValidationError(
+                    _("Either 'repository' or 'repository_version' needs to be specified"))
+            else:
+                new_data['repository'] = repository_version.repository
 
         try:
-            models.Manifest.objects.get(digest=data['digest'])
+            manifest = models.Manifest.objects.get(digest=data['digest'])
         except models.Manifest.DoesNotExist:
             raise serializers.ValidationError(
                 _("The digest '{digest}' does not exist in the model '{model}'"
                   .format(digest=data['digest'], model=models.Manifest.__name__)))
 
-        '''
-        # do we need to store repo or repo_ver?
-
-        # copied from 'pulpcore/app/serializers/publication.py:PublicationSerializer(MasterModelSerializer)'
-
-        repository = data.pop('repository', None)  # not an actual field on publication
-        repository_version = data.get('repository_version')
-        if not repository and not repository_version:
-            raise serializers.ValidationError(
-                _("Either the 'repository' or 'repository_version' need to be specified"))
-        elif not repository and repository_version:
-            return data
-        elif repository and not repository_version:
-            version = models.RepositoryVersion.latest(repository)
-            if version:
-                new_data = {'repository_version': version}
-                new_data.update(data)
-                return new_data
-            else:
-                raise serializers.ValidationError(
-                    detail=_('Repository has no version available to create Publication from'))
-        raise serializers.ValidationError(
-            _("Either 'repository' or 'repository_version' need to be specified "
-              "but not both.")
-        )
-        '''
-
-        return data
+        new_data['manifest'] = manifest
+        new_data.update(data)
+        return new_data
 
     class Meta:
         fields = (

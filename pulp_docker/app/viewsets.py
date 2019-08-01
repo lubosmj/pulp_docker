@@ -190,18 +190,21 @@ class TagImageViewSet(ContentViewSet):
     )
     @transaction.atomic
     def create(self, request):
-        import pydevd_pycharm
-        pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
         serializer = serializers.TagImageSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
+        manifest = serializer.validated_data['manifest']
+        tag = serializer.validated_data['tag']
+        repository = serializer.validated_data['repository']
+
         result = enqueue_with_reservation(
-            tasks.create_new_repository_version
-            #[*PARAMS*],
-            #kwargs={
-                #'remote_pk': remote.pk,
-                #'repository_pk': repository.pk
-            #}
+            tasks.create_new_repository_version,
+            [manifest],
+            kwargs={
+                'manifest_pk': manifest.pk,
+                'tag': tag,
+                'repository_pk': repository.pk
+            }
         )
         return OperationPostponedResponse(result, request)
 
