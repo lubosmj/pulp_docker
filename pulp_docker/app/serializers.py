@@ -188,9 +188,6 @@ class TagImageSerializer(serializers.Serializer):
         required=True
     )
 
-    def create(self, validated_data):
-        return
-
     def validate(self, data):
         super().validate(data)
 
@@ -217,15 +214,14 @@ class TagImageSerializer(serializers.Serializer):
         new_data.update(data)
         return new_data
 
-    class Meta:
-        fields = (
-            'digest',
-            'repository', 'repository_version', 'tag'
-        )
-        model = models.Manifest
-
 
 class UnTagImageSerializer(serializers.Serializer):
+    def create(self, validated_data):
+        pass
+
+    def update(self, instance, validated_data):
+        pass
+
     repository = IdentityField(
         required=False,
         view_name='docker-manifests-detail',

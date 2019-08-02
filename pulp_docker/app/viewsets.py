@@ -8,6 +8,7 @@ Check `Plugin Writer's Guide`_ for more details.
 from django_filters import ChoiceFilter, CharFilter
 from django.db import transaction
 from drf_yasg.utils import swagger_auto_schema
+from rest_framework import viewsets
 
 from pulpcore.plugin.serializers import (
     AsyncOperationResponseSerializer,
@@ -177,12 +178,10 @@ class DockerDistributionViewSet(BaseDistributionViewSet):
     serializer_class = serializers.DockerDistributionSerializer
 
 
-class TagImageViewSet(ContentViewSet):
+class TagImageViewSet(viewsets.ViewSet):
 
     endpoint_name = 'tag'
-    queryset = models.Manifest.objects.all()
     serializer_class = serializers.ManifestSerializer
-    filterset_class = ManifestFilter
 
     @swagger_auto_schema(
         operation_description="Trigger an asynchronous task to create a new repository",
@@ -209,6 +208,6 @@ class TagImageViewSet(ContentViewSet):
         return OperationPostponedResponse(result, request)
 
 
-class UnTagImageViewSet(ContentViewSet):
+class UnTagImageViewSet(viewsets.ViewSet):
 
     endpoint_name = 'untag'

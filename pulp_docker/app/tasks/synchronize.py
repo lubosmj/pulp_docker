@@ -1,7 +1,7 @@
 from gettext import gettext as _
 import logging
 
-from pulpcore.plugin.models import Repository, RepositoryVersion, ContentArtifact
+from pulpcore.plugin.models import Repository
 from pulpcore.plugin.stages import (
     ArtifactDownloader,
     ArtifactSaver,
@@ -81,26 +81,3 @@ class DockerDeclarativeVersion(DeclarativeVersion):
             pipeline.append(RemoveDuplicates(new_version, **dupe_query_dict))
 
         return pipeline
-
-
-def create_new_repository_version(manifest_pk, tag, repository_pk):
-    manifest = Manifest.objects.get(pk=manifest_pk)
-    artifact = manifest._artifacts.all()[0]
-
-    manifest_tag = ManifestTag.objects.create(
-        name=tag,
-        tagged_manifest=manifest
-    )
-
-    ContentArtifact.objects.create(
-        artifact=artifact,
-        content=manifest_tag,
-        relative_path=artifact.file.name
-    )
-
-    manifest_tag_list = ManifestTag.objects.filter(pk=manifest_tag.pk)
-
-    repository = Repository.objects.get(pk=repository_pk)
-
-    with RepositoryVersion.create(repository) as repository_version:
-        repository_version.add_content(manifest_tag_list)
