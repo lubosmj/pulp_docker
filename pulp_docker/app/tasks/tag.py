@@ -6,12 +6,12 @@ def create_new_repository_version(manifest_pk, tag, repository_pk):
     manifest = Manifest.objects.get(pk=manifest_pk)
     artifact = manifest._artifacts.all()[0]
 
-    manifest_tag = ManifestTag.objects.create(
+    manifest_tag, _ = ManifestTag.objects.get_or_create(
         name=tag,
         tagged_manifest=manifest
     )
 
-    ContentArtifact.objects.create(
+    ContentArtifact.objects.get_or_create(
         artifact=artifact,
         content=manifest_tag,
         relative_path=artifact.file.name

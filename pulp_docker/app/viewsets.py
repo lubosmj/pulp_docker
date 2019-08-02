@@ -187,7 +187,6 @@ class TagImageViewSet(viewsets.ViewSet):
         operation_description="Trigger an asynchronous task to create a new repository",
         responses={202: AsyncOperationResponseSerializer}
     )
-    @transaction.atomic
     def create(self, request):
         serializer = serializers.TagImageSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)

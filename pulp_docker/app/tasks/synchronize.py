@@ -15,7 +15,7 @@ from pulpcore.plugin.stages import (
 )
 
 from .sync_stages import InterrelateContent, DockerFirstStage
-from pulp_docker.app.models import DockerRemote, ManifestTag, Manifest
+from pulp_docker.app.models import DockerRemote, ManifestTag
 
 
 log = logging.getLogger(__name__)
