@@ -168,33 +168,48 @@ class DockerDistributionSerializer(RepositoryVersionDistributionSerializer):
 
 
 class TagImageSerializer(serializers.Serializer):
+    """
+    A serializer for parsing and validating data associated with a manifest tagging.
+    """
+
     repository = RelatedField(
         required=False,
         view_name='repositories-detail',
         queryset=Repository.objects.all(),
-        write_only=True
+        help_text='A URI of the repository.'
     )
     repository_version = NestedRelatedField(
+        required=False,
         view_name='versions-detail',
+        queryset=RepositoryVersion.objects.all(),
         lookup_field='number',
         parent_lookup_kwargs={'repository_pk': 'repository__pk'},
-        queryset=RepositoryVersion.objects.all(),
-        required=False,
+        help_text='A URI of the repository version'
     )
     tag = serializers.CharField(
-        required=True
+        required=True,
+        help_text='A tag name'
     )
     digest = serializers.CharField(
-        required=True
+        required=True,
+        help_text='sha256 of the Manifest file'
     )
 
     def validate(self, data):
-        super().validate(data)
+        """
+        Request's data are validated and adjusted in this method.
+
+        A new dictionary object is initialized by the input data and altered afterwards.
+        When a repository version is specified only, a particular repository object is
+        retrieved from it and stored in the dictionary. Also, Manifest with a corresponding
+        digest is fetched from a database and stored in the dictionary.
+        """
 
         repository = data.get('repository', None)
         repository_version = data.get('repository_version', None)
 
         new_data = {}
+        new_data.update(data)
 
         if repository is None:
             if repository_version is None:
@@ -211,17 +226,10 @@ class TagImageSerializer(serializers.Serializer):
                   .format(digest=data['digest'], model=models.Manifest.__name__)))
 
         new_data['manifest'] = manifest
-        new_data.update(data)
         return new_data
 
 
 class UnTagImageSerializer(serializers.Serializer):
-    def create(self, validated_data):
-        pass
-
-    def update(self, instance, validated_data):
-        pass
-
     repository = IdentityField(
         required=False,
         view_name='docker-manifests-detail',
