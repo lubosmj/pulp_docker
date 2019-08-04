@@ -21,7 +21,8 @@ from pulpcore.plugin.viewsets import (
     ContentFilter,
     ContentViewSet,
     RemoteViewSet,
-    OperationPostponedResponse,)
+    OperationPostponedResponse,
+)
 from rest_framework.decorators import detail_route
 
 from . import models, serializers, tasks
@@ -179,16 +180,21 @@ class DockerDistributionViewSet(BaseDistributionViewSet):
 
 
 class TagImageViewSet(viewsets.ViewSet):
+    """
+    ViewSet used for tagging manifests. This endpoint supports only HTTP POST requests.
+    """
 
     endpoint_name = 'tag'
-    serializer_class = serializers.ManifestSerializer
 
     @swagger_auto_schema(
         operation_description="Trigger an asynchronous task to create a new repository",
         responses={202: AsyncOperationResponseSerializer}
     )
     def create(self, request):
-        serializer = serializers.TagImageSerializer(data=request.data, context={'request': request})
+        serializer = serializers.ManifestTaggingSerializer(
+            data=request.data,
+            context={'request': request}
+        )
         serializer.is_valid(raise_exception=True)
 
         manifest = serializer.validated_data['manifest']
@@ -196,8 +202,8 @@ class TagImageViewSet(viewsets.ViewSet):
         repository = serializer.validated_data['repository']
 
         result = enqueue_with_reservation(
-            tasks.create_new_repository_version,
-            [manifest],
+            tasks.tag.create_new_repository_version,
+            [repository, manifest],
             kwargs={
                 'manifest_pk': manifest.pk,
                 'tag': tag,
@@ -208,5 +214,32 @@ class TagImageViewSet(viewsets.ViewSet):
 
 
 class UnTagImageViewSet(viewsets.ViewSet):
+    """
+    ViewSet used for untagging manifests. This endpoint supports only HTTP POST requests.
+    """
 
     endpoint_name = 'untag'
+
+    @swagger_auto_schema(
+        operation_description="Trigger an asynchronous task to create a new repository",
+        responses={202: AsyncOperationResponseSerializer}
+    )
+    def create(self, request):
+        serializer = serializers.ManifestUntaggingSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        tag = serializer.validated_data['tag']
+        repository = serializer.validated_data['repository']
+
+        result = enqueue_with_reservation(
+            tasks.untag.create_new_repository_version,
+            [repository],
+            kwargs={
+                'tag': tag,
+                'repository_pk': repository.pk
+            }
+        )
+        return OperationPostponedResponse(result, request)
