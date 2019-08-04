@@ -10,7 +10,6 @@ from pulpcore.plugin.serializers import (
     RemoteSerializer,
     RepositoryVersionDistributionSerializer,
     SingleArtifactContentSerializer,
-    IdentityField,
     RelatedField,
     NestedRelatedField,
 )
@@ -167,9 +166,9 @@ class DockerDistributionSerializer(RepositoryVersionDistributionSerializer):
             'registry_path',)
 
 
-class TagImageSerializer(serializers.Serializer):
+class ManifestTagOperationSerializer(serializers.Serializer):
     """
-    A serializer for parsing and validating data associated with a manifest tagging.
+    A base serializer for tagging and untagging manifests.
     """
 
     repository = RelatedField(
@@ -190,10 +189,6 @@ class TagImageSerializer(serializers.Serializer):
         required=True,
         help_text='A tag name'
     )
-    digest = serializers.CharField(
-        required=True,
-        help_text='sha256 of the Manifest file'
-    )
 
     def validate(self, data):
         """
@@ -201,8 +196,7 @@ class TagImageSerializer(serializers.Serializer):
 
         A new dictionary object is initialized by the input data and altered afterwards.
         When a repository version is specified only, a particular repository object is
-        retrieved from it and stored in the dictionary. Also, Manifest with a corresponding
-        digest is fetched from a database and stored in the dictionary.
+        retrieved from it and stored in the dictionary.
         """
 
         repository = data.get('repository', None)
@@ -218,7 +212,25 @@ class TagImageSerializer(serializers.Serializer):
             else:
                 new_data['repository'] = repository_version.repository
 
+        return new_data
+
+
+class ManifestTaggingSerializer(ManifestTagOperationSerializer):
+    """
+    A serializer for parsing and validating data associated with a manifest tagging.
+    """
+
+    digest = serializers.CharField(
+        required=True,
+        help_text='sha256 of the Manifest file'
+    )
+
+    def validate(self, data):
+        new_data = super().validate(data)
+
         try:
+            # Manifest with a corresponding digest is retrieved from a database and stored
+            # in the dictionary to avoid querying the database in the ViewSet again.
             manifest = models.Manifest.objects.get(digest=data['digest'])
         except models.Manifest.DoesNotExist:
             raise serializers.ValidationError(
@@ -229,15 +241,7 @@ class TagImageSerializer(serializers.Serializer):
         return new_data
 
 
-class UnTagImageSerializer(serializers.Serializer):
-    repository = IdentityField(
-        required=False,
-        view_name='docker-manifests-detail',
-    )
-    repository_version = IdentityField(
-        required=False,
-        view_name='docker-manifests-detail',
-    )
-    tag = serializers.CharField(
-        required=True
-    )
+class ManifestUntaggingSerializer(ManifestTagOperationSerializer):
+    """
+    A serializer for parsing and validating data associated with a manifest untagging.
+    """
