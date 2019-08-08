@@ -4,7 +4,12 @@ from django.conf import settings
 
 from rest_framework import serializers
 
-from pulpcore.plugin.models import Remote, RepositoryVersion, Repository
+from pulpcore.plugin.models import (
+    Remote,
+    Repository,
+    RepositoryVersion,
+    RepositoryContent
+)
 from pulpcore.plugin.serializers import (
     DetailRelatedField,
     RemoteSerializer,
@@ -166,7 +171,7 @@ class DockerDistributionSerializer(RepositoryVersionDistributionSerializer):
             'registry_path',)
 
 
-class ManifestTagOperationSerializer(serializers.Serializer):
+class TagOperationSerializer(serializers.Serializer):
     """
     A base serializer for tagging and untagging manifests.
     """
@@ -214,7 +219,7 @@ class ManifestTagOperationSerializer(serializers.Serializer):
         return new_data
 
 
-class ManifestTaggingSerializer(ManifestTagOperationSerializer):
+class TagImageSerializer(TagOperationSerializer):
     """
     A serializer for parsing and validating data associated with a manifest tagging.
     """
@@ -230,22 +235,62 @@ class ManifestTaggingSerializer(ManifestTagOperationSerializer):
 
         In addition to the inherited method, Manifest with a corresponding digest is
         retrieved from a database and stored in the dictionary to avoid querying the
-        database in the ViewSet again.
+        database in the ViewSet again. The method checks if the tag exists within the
+        repository.
         """
         new_data = super().validate(data)
 
         try:
-            manifest = models.Manifest.objects.get(digest=data['digest'])
+            manifest = models.Manifest.objects.get(digest=new_data['digest'])
         except models.Manifest.DoesNotExist:
             raise serializers.ValidationError(
-                _("The digest '{digest}' does not exist in the model '{model}'"
-                  .format(digest=data['digest'], model=models.Manifest.__name__)))
+                _("The digest '{}' does not exist in the model '{}'"
+                  .format(new_data['digest'], models.Manifest.__name__))
+            )
+
+        try:
+            RepositoryContent.objects.get(content=manifest, repository=new_data['repository'])
+        except RepositoryContent.DoesNotExist:
+            raise serializers.ValidationError(
+                _("The manifest '{}' does not exist in the provided repository '{}'"
+                  .format(manifest, new_data['repository']))
+            )
 
         new_data['manifest'] = manifest
         return new_data
 
 
-class ManifestUntaggingSerializer(ManifestTagOperationSerializer):
+class UnTagImageSerializer(TagOperationSerializer):
     """
     A serializer for parsing and validating data associated with a manifest untagging.
     """
+
+    def validate(self, data):
+        """
+        Validate data passed through a request call.
+
+        The method checks if the tag exists within the repository.
+        """
+        new_data = super().validate(data)
+
+        import pydevd_pycharm
+        pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
+
+        tags = models.ManifestTag.objects.filter(name=new_data['tag'])
+        if tags.count() == 0:
+            raise serializers.ValidationError(
+                _("The tag name '{}' does not exist".format(new_data['tag']))
+            )
+
+        tagged_manifests = (tag.tagged_manifest for tag in tags)
+        contents = RepositoryContent.objects.filter(
+            content__in=tagged_manifests,
+            repository=new_data['repository']
+        )
+        if contents.count() == 0:
+            raise serializers.ValidationError(
+                _("The tag '{}' does not exist in the provided repository '{}'"
+                  .format(new_data['tag'], new_data['repository']))
+            )
+
+        return new_data

@@ -2,7 +2,7 @@ from pulpcore.plugin.models import Repository, RepositoryVersion
 from pulp_docker.app.models import ManifestTag
 
 
-def create_new_repository_version(tag, repository_pk):
+def untag_image(tag, repository_pk):
     """
     Create a new repository version without a specified manifest's tag name.
     """

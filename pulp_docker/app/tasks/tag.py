@@ -1,8 +1,8 @@
-from pulpcore.plugin.models import Repository, RepositoryVersion, ContentArtifact
+from pulpcore.plugin.models import Repository, RepositoryVersion, ContentArtifact, CreatedResource
 from pulp_docker.app.models import ManifestTag, Manifest
 
 
-def create_new_repository_version(manifest_pk, tag, repository_pk):
+def tag_image(manifest_pk, tag, repository_pk):
     """
     Create a new repository version out of the passed tag name and the manifest.
 
@@ -23,6 +23,9 @@ def create_new_repository_version(manifest_pk, tag, repository_pk):
         name=tag,
         tagged_manifest=manifest
     )
+
+    resource = CreatedResource(content_object=manifest_tag)
+    resource.save()
 
     ContentArtifact.objects.get_or_create(
         artifact=artifact,

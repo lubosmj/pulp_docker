@@ -191,7 +191,7 @@ class TagImageViewSet(viewsets.ViewSet):
         """
         Create a task which is responsible for initializing a new repository version.
         """
-        serializer = serializers.ManifestTaggingSerializer(
+        serializer = serializers.TagImageSerializer(
             data=request.data,
             context={'request': request}
         )
@@ -202,7 +202,7 @@ class TagImageViewSet(viewsets.ViewSet):
         repository = serializer.validated_data['repository']
 
         result = enqueue_with_reservation(
-            tasks.tag.create_new_repository_version,
+            tasks.tag_image,
             [repository, manifest],
             kwargs={
                 'manifest_pk': manifest.pk,
@@ -228,7 +228,7 @@ class UnTagImageViewSet(viewsets.ViewSet):
         """
         Create a task which is responsible for initializing a new repository version.
         """
-        serializer = serializers.ManifestUntaggingSerializer(
+        serializer = serializers.UnTagImageSerializer(
             data=request.data,
             context={'request': request}
         )
@@ -238,7 +238,7 @@ class UnTagImageViewSet(viewsets.ViewSet):
         repository = serializer.validated_data['repository']
 
         result = enqueue_with_reservation(
-            tasks.untag.create_new_repository_version,
+            tasks.untag_image,
             [repository],
             kwargs={
                 'tag': tag,
