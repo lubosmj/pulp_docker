@@ -167,32 +167,6 @@ def sign(data, key):
     return jdata2
 
 
-def validate_signature(signed_mf):
-    """
-    Validate the signature of a signed manifest
-
-    A signed manifest is a JSON document with a signature attribute
-    as the last element.
-    """
-    # In order to validate the signature, we need the exact original payload
-    # (the document without the signature). We cannot json.load the document
-    # and get rid of the signature, the payload would likely end up
-    # differently because of differences in field ordering and indentation.
-    # So we need to strip the signature using plain string manipulation, and
-    # add back a trailing }
-
-    # strip the signature block
-    payload, sep, signatures = signed_mf.partition('   "signatures"')
-    # get rid of the trailing ,\n, and add \n}
-    jw_payload = payload[:-2] + '\n}'
-    # base64-encode and remove any trailing =
-    jw_payload = base64.urlsafe_b64encode(jw_payload.encode('ascii')).decode('ascii').rstrip("=")
-    # add payload as a json attribute, and then add the signatures back
-    complete_msg = payload + '   "payload": "{}",\n'.format(jw_payload) + sep + signatures
-    _jws = jws.JWS()
-    _jws.verify_json(complete_msg.encode('ascii'))
-
-
 def getKeyId(key):
     """
     DER-encode the key and represent it in the format XXXX:YYYY:...
