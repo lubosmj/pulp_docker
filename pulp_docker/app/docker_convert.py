@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-
-import argparse
 import base64
 import binascii
 import datetime
@@ -9,41 +6,12 @@ import hashlib
 import itertools
 import json
 import logging
-import sys
 from collections import namedtuple
 from jwkest import jws, jwk, ecc
 
 log = logging.getLogger(__name__)
 
 FS_Layer = namedtuple("FS_Layer", "layer_id uncompressed_digest history")
-
-
-def main():
-    """
-    Command line entry point for validation purposes.
-    """
-    logging.basicConfig(level=logging.ERROR, format='%(asctime)s %(levelname)s %(message)s')
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--manifest', help='v2s1 manifest', required=True, type=argparse.FileType())
-    parser.add_argument('--config-layer', help='Config layer', type=argparse.FileType())
-    parser.add_argument('--namespace', help='Namespace', default='myself')
-    parser.add_argument('--repository', help='Image name (repository)', default='dummy')
-    parser.add_argument('--tag', help='Tag', default='latest')
-
-    parser.add_argument('-v', '--verbose', action='count', default=0, help='Increase verbosity')
-
-    args = parser.parse_args()
-    logLevel = logging.INFO
-    if args.verbose > 1:
-        logLevel = logging.DEBUG
-    log.setLevel(logLevel)
-
-    converter = Converter_s2_to_s1(
-        json.load(args.manifest), json.load(args.config_layer),
-        namespace=args.namespace, repository=args.repository,
-        tag=args.tag)
-    manif_data = converter.convert()
-    print(manif_data)
 
 
 class Converter_s2_to_s1:
@@ -268,7 +236,3 @@ def number2string(num, order):
     # Zero-pad to the left so the length of the resulting unhexified string is order
     nhex = nhex.rjust(2 * order, '0')
     return binascii.unhexlify(nhex)
-
-
-if __name__ == '__main__':
-    sys.exit(main())
