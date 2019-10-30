@@ -24,13 +24,13 @@ class Converter_s2_to_s1:
 
     EMPTY_LAYER = "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
 
-    def __init__(self, manifest, config_layer, namespace=None, repository=None, tag=None):
+    def __init__(self, manifest, config_layer, namespace="ignored", repository="test", tag="latest"):
         """
         Initializer needs a manifest and a config layer as JSON documents.
         """
-        self.namespace = namespace or "ignored"
-        self.repository = repository or "test"
-        self.tag = tag or "latest"
+        self.namespace = namespace
+        self.repository = repository
+        self.tag = tag
         self.manifest = manifest
         self.config_layer = config_layer
         self.fs_layers = []
@@ -44,7 +44,12 @@ class Converter_s2_to_s1:
             log.info("Manifest is already schema 1")
             return _jsonDumps(self.manifest)
         log.info("Converting manifest to schema 1")
-        name = "%s/%s" % (self.namespace, self.repository)
+        # TODO: is namespace always required? if so, is the default value really equal to "ignored"?
+        if self.namespace == "ignored":
+            name = "%s" % self.repository
+        else:
+            name = "%s/%s" % (self.namespace, self.repository)
+
         self.compute_layers()
         manifest = dict(name=name, tag=self.tag, architecture=self.config_layer['architecture'],
                         schemaVersion=1, fsLayers=self.fs_layers, history=self.history)
