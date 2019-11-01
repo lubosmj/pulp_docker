@@ -165,10 +165,6 @@ class Registry(Handler):
                                 'Docker-Content-Digest': tag.tagged_manifest.digest}
             return await Registry.dispatch_tag(tag, response_headers)
 
-        #################################################
-        #################################################
-        #################################################
-
         # the path should be split by "/", library/busybox (library is namespace, busybox is repository)
         schema, converted, digest = _convert_manifest(tag, accepted_media_types, path)
         if schema is None:
@@ -235,12 +231,12 @@ class Registry(Handler):
 
 
 def _convert_manifest(tag, accepted_media_types, repository):
+    schema1_builder = Schema1ManifestBuilder(tag.name, namespace="ignored", repository=repository)
     if tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_V2:
         # convert schema2 to schema1
-        config = _get_config(tag.tagged_manifest)
-        schema1_builder = Schema1ManifestBuilder(tag.name, tag.tagged_manifest, config, namespace="ignored", repository=repository)
-        #_populate_schema1_builder(schema1_builder, tag.tagged_manifest)
-        schema1_converted, digest = schema1_builder.build()
+        config = _get_config_json(tag.tagged_manifest)
+        manifest = _get_manifest_json(tag.tagged_manifest)
+        schema1_converted, digest = schema1_builder.build(manifest, config)
         return schema1_builder, True, digest
     elif tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_LIST:
         legacy = _get_legacy_manifest(tag)
@@ -248,10 +244,9 @@ def _convert_manifest(tag, accepted_media_types, repository):
             return None, None, None
         if legacy.media_type == MEDIA_TYPE.MANIFEST_V2 and legacy.media_type not in accepted_media_types:
             # convert schema2 to schema1
-            config = _get_config(legacy)
-            schema1_builder = Schema1ManifestBuilder(tag.name, legacy, config, namespace="ignored", repository=repository)
-            #_populate_schema1_builder(schema1_builder, legacy)
-            schema1_converted, digest = schema1_builder.build()
+            config = _get_config_json(legacy)
+            manifest = _get_manifest_json(legacy)
+            schema1_converted, digest = schema1_builder.build(manifest, config)
             return schema1_converted, True, digest
         else:
             # return legacy without conversion
@@ -268,52 +263,44 @@ def _get_legacy_manifest(tag):
     return None
 
 
-'''
-def _populate_schema1_builder(schema1_builder, manifest):
-    """
-    Populates a Schema1ManifestBuilder with the layers and config
-    """
-    schema2_config = _get_config(manifest)
-    layers = list(_manifest_image_layers(schema2_config))
-'''
+def _get_config_json(manifest):
+    config_artifact = manifest.config_blob._artifacts.first()
+    return _get_json(config_artifact)
 
 
-def _get_config(manifest):
-    config_blob = manifest.config_blob
-    # TODO: load json directly from the path specified by manifest.config_blob._artifacts.first().file.name
-    return json.loads(CONFIG_BLOB_RAW)
+def _get_manifest_json(manifest):
+    manifest_artifact = manifest._artifacts.first()
+    return _get_json(manifest_artifact)
 
 
-'''
-def _manifest_image_layers(config):
-    return DockerV2ManifestImageLayer(config)
-'''
+def _get_json(artifact):
+    with open(os.path.join(settings.MEDIA_ROOT, artifact.file.path)) as json_file:
+        json_string = json_file.read()
+    return json.loads(json_string)
+
 
 class Schema1ManifestBuilder(object):
     """
     Abstraction around creating new Schema1Manifests.
     """
 
-    def __init__(self, tag, manifest, config_layer, namespace, repository):
+    def __init__(self, tag, namespace, repository):
         self.tag = tag
-        with open(os.path.join(settings.MEDIA_ROOT, manifest._artifacts.first().file.name)) as manifest_art:
-            self.manifest = json.loads(manifest_art.read())
-        self.config_layer = config_layer
         self.namespace = namespace
         self.repository = repository
 
-    def build(self):
+    def build(self, manifest, config):
         """
         build schema1 + signature
         """
         converter = Converter_s2_to_s1(
-            self.manifest,
-            self.config_layer,
+            manifest,
+            config,
             namespace=self.namespace,
             repository=self.repository,
             tag=self.tag
         )
-        if self.manifest.get("layers"):
-            return converter.convert(), self.manifest.get("layers")[0].get("digest")
+        if manifest.get("layers"):
+            return converter.convert(), manifest.get("layers")[0].get("digest")
         else:
-            return converter.convert(), self.manifest.get("digest")
+            return converter.convert(), manifest.get("digest")
