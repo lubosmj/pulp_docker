@@ -10,7 +10,7 @@ from multidict import MultiDict
 from pulpcore.plugin.content import Handler, PathNotResolved
 from pulpcore.plugin.models import ContentArtifact
 from pulp_docker.app.models import DockerDistribution, Tag
-from pulp_docker.app.docker_convert import Converter_s2_to_s1
+from pulp_docker.app.docker_convert import ConverterS2toS1
 from pulp_docker.constants import MEDIA_TYPE
 
 
@@ -18,8 +18,6 @@ log = logging.getLogger(__name__)
 
 v2_headers = MultiDict()
 v2_headers['Docker-Distribution-API-Version'] = 'registry/2.0'
-
-CONFIG_BLOB_RAW = '{"architecture":"arm","config":{"Hostname":"","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],"Cmd":["sh"],"ArgsEscaped":true,"Image":"sha256:dd7d664255f5d53114e9b12f5eac45ab86f633ca7ed8f6345f8ce7b9551f7296","Volumes":null,"WorkingDir":"","Entrypoint":null,"OnBuild":null,"Labels":null},"container":"4dcd86c5bcbb0b4ba5bd980fbf2d5938073d2d3d5564f750c7bc2f5b7de6b22f","container_config":{"Hostname":"4dcd86c5bcbb","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],"Cmd":["/bin/sh","-c","#(nop) ","CMD [\\"sh\\"]"],"ArgsEscaped":true,"Image":"sha256:dd7d664255f5d53114e9b12f5eac45ab86f633ca7ed8f6345f8ce7b9551f7296","Volumes":null,"WorkingDir":"","Entrypoint":null,"OnBuild":null,"Labels":{}},"created":"2018-03-01T08:06:05.664692303Z","docker_version":"17.06.2-ce","history":[{"created":"2018-03-01T08:06:05.394880099Z","created_by":"/bin/sh -c #(nop) ADD file:42e5458a07400ccdb13624b5938915852628509ac97df20e60ea81292293683a in / "},{"created":"2018-03-01T08:06:05.664692303Z","created_by":"/bin/sh -c #(nop)  CMD [\\"sh\\"]","empty_layer":true}],"os":"linux","rootfs":{"type":"layers","diff_ids":["sha256:2b2ae7fb5a0c7c95fca1a5d0cc32fc720b4ff47783ccd448b61ae499d89950b9"]}}'
 
 
 class ArtifactNotFound(Exception):
@@ -150,9 +148,6 @@ class Registry(Handler):
         except ObjectDoesNotExist:
             raise PathNotResolved(tag_name)
 
-        #import pydevd_pycharm
-        #pydevd_pycharm.settrace('localhost', port=12345, stdoutToServer=True, stderrToServer=True)
-
         if tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_V1:
             return_media_type = MEDIA_TYPE.MANIFEST_V1_SIGNED
             response_headers = {'Content-Type': return_media_type,
@@ -165,17 +160,7 @@ class Registry(Handler):
                                 'Docker-Content-Digest': tag.tagged_manifest.digest}
             return await Registry.dispatch_tag(tag, response_headers)
 
-        # the path should be split by "/", library/busybox (library is namespace, busybox is repository)
-        schema, converted, digest = _convert_manifest(tag, accepted_media_types, path)
-        if schema is None:
-            raise PathNotResolved(tag_name)
-        response_headers = {'Content-Type': MEDIA_TYPE.MANIFEST_V1_SIGNED,
-                            'Docker-Content-Digest': digest,
-                            'Docker-Distribution-API-Version': 'registry/2.0'}
-        if not converted:
-            return await Registry.dispatch_tag(schema, response_headers)
-        # do not use dispatch_tag here because we did not save converted schema1 as an artifact
-        return await Registry.dispatch_converted_schema1(schema, response_headers)
+        return await Registry.dispatch_converted_schema(tag, accepted_media_types, path)
 
     @staticmethod
     async def dispatch_tag(tag, response_headers):
@@ -201,7 +186,37 @@ class Registry(Handler):
                                             response_headers)
 
     @staticmethod
-    async def dispatch_converted_schema1(schema, response_headers):
+    async def dispatch_converted_schema(tag, accepted_media_types, path):
+        """
+        Convert a manifest from the format schema 2 to the format schema 1.
+
+        The format is converted on-the-go and created resources are not stored for further uses.
+        The conversion is made after each request which does not accept the format for schema 2.
+
+        Args:
+            tag: A tag object which contains reference to tagged manifests and config blobs.
+            accepted_media_types: Accepted media types declared in the accept header.
+            path: A path of a repository.
+
+        Raises:
+            PathNotResolved: There was not found a valid conversion for the specified tag.
+
+        Returns:
+            :class:`aiohttp.web.StreamResponse` or :class:`aiohttp.web.Response`: The response
+                streamed back to the client.
+
+        """
+
+        try:
+            schema, converted, digest = _convert_manifest(tag, accepted_media_types, path)
+        except RuntimeError:
+            raise PathNotResolved(tag.name)
+        response_headers = {'Docker-Content-Digest': digest,
+                            'Content-Type': MEDIA_TYPE.MANIFEST_V1_SIGNED,
+                            'Docker-Distribution-API-Version': 'registry/2.0'}
+        if not converted:
+            return await Registry.dispatch_tag(schema, response_headers)
+
         return web.Response(text=schema, headers=response_headers)
 
     async def get_by_digest(self, request):
@@ -230,77 +245,82 @@ class Registry(Handler):
                 return await self._stream_content_artifact(request, web.StreamResponse(), ca)
 
 
-def _convert_manifest(tag, accepted_media_types, repository):
-    schema1_builder = Schema1ManifestBuilder(tag.name, namespace="ignored", repository=repository)
+def _convert_manifest(tag, accepted_media_types, path):
     if tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_V2:
-        # convert schema2 to schema1
-        config = _get_config_json(tag.tagged_manifest)
-        manifest = _get_manifest_json(tag.tagged_manifest)
-        schema1_converted, digest = schema1_builder.build(manifest, config)
-        return schema1_builder, True, digest
+        converted_schema = _convert_schema(tag.name, path, tag.tagged_manifest)
+        return converted_schema, True, tag.tagged_manifest.digest
     elif tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_LIST:
         legacy = _get_legacy_manifest(tag)
-        if legacy is None:
-            return None, None, None
         if legacy.media_type == MEDIA_TYPE.MANIFEST_V2 and legacy.media_type not in accepted_media_types:
-            # convert schema2 to schema1
-            config = _get_config_json(legacy)
-            manifest = _get_manifest_json(legacy)
-            schema1_converted, digest = schema1_builder.build(manifest, config)
-            return schema1_converted, True, digest
+            converted_schema = _convert_schema(tag.name, path, legacy)
+            return converted_schema, True, legacy.digest
         else:
             # return legacy without conversion
             return legacy, False, legacy.digest
+
+
+def _convert_schema(tag_name, path, manifest):
+    schema1_builder = Schema1ConverterWrapper(tag_name, path)
+    config_dict = _get_config_dict(manifest)
+    manifest_dict = _get_manifest_dict(manifest)
+
+    schema1_converted = schema1_builder.convert(manifest_dict, config_dict)
+    return schema1_converted
 
 
 def _get_legacy_manifest(tag):
     ml = tag.tagged_manifest.listed_manifests.all()
     for manifest in ml:
         m = manifest.manifest_lists.first()
-        if m.architecture != 'amd64' or m.os != 'linux':
-            continue
-        return m.manifest_list
-    return None
+        if m.architecture == 'amd64' and m.os == 'linux':
+            return m.manifest_list
+
+    raise RuntimeError()
 
 
-def _get_config_json(manifest):
-    config_artifact = manifest.config_blob._artifacts.first()
-    return _get_json(config_artifact)
+def _get_config_dict(manifest):
+    try:
+        config_artifact = manifest.config_blob._artifacts.get()
+    except ObjectDoesNotExist:
+        raise RuntimeError()
+    return _get_dict(config_artifact)
 
 
-def _get_manifest_json(manifest):
-    manifest_artifact = manifest._artifacts.first()
-    return _get_json(manifest_artifact)
+def _get_manifest_dict(manifest):
+    try:
+        manifest_artifact = manifest._artifacts.get()
+    except ObjectDoesNotExist:
+        raise RuntimeError()
+    return _get_dict(manifest_artifact)
 
 
-def _get_json(artifact):
+def _get_dict(artifact):
     with open(os.path.join(settings.MEDIA_ROOT, artifact.file.path)) as json_file:
         json_string = json_file.read()
     return json.loads(json_string)
 
 
-class Schema1ManifestBuilder(object):
-    """
-    Abstraction around creating new Schema1Manifests.
-    """
+class Schema1ConverterWrapper:
+    """An abstraction around creating new manifests of the format schema 1."""
 
-    def __init__(self, tag, namespace, repository):
-        self.tag = tag
+    def __init__(self, tag, path):
+        try:
+            namespace, repository = path.split("/")
+        except ValueError:
+            namespace = ""
+            repository = path
+
         self.namespace = namespace
         self.repository = repository
+        self.tag = tag
 
-    def build(self, manifest, config):
-        """
-        build schema1 + signature
-        """
-        converter = Converter_s2_to_s1(
+    def convert(self, manifest, config):
+        """Convert a manifest to schema 1."""
+        converter = ConverterS2toS1(
             manifest,
             config,
             namespace=self.namespace,
             repository=self.repository,
             tag=self.tag
         )
-        if manifest.get("layers"):
-            return converter.convert(), manifest.get("layers")[0].get("digest")
-        else:
-            return converter.convert(), manifest.get("digest")
+        return converter.convert()

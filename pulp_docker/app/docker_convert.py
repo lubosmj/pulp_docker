@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 FS_Layer = namedtuple("FS_Layer", "layer_id uncompressed_digest history")
 
 
-class Converter_s2_to_s1:
+class ConverterS2toS1:
     """
-    Convertor class from schema 2 to schema 1.
+    Converter class from schema 2 to schema 1.
 
     Initialize it with a manifest and a config layer JSON documents,
     and call convert() to obtain the signed manifest, as a JSON-encoded string.
@@ -24,7 +24,7 @@ class Converter_s2_to_s1:
 
     EMPTY_LAYER = "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
 
-    def __init__(self, manifest, config_layer, namespace="ignored", repository="test", tag="latest"):
+    def __init__(self, manifest, config_layer, namespace="", repository="test", tag="latest"):
         """
         Initializer needs a manifest and a config layer as JSON documents.
         """
@@ -44,11 +44,11 @@ class Converter_s2_to_s1:
             log.info("Manifest is already schema 1")
             return _jsonDumps(self.manifest)
         log.info("Converting manifest to schema 1")
-        # TODO: is namespace always required? if so, is the default value really equal to "ignored"?
-        if self.namespace == "ignored":
-            name = "%s" % self.repository
-        else:
+
+        if self.namespace:
             name = "%s/%s" % (self.namespace, self.repository)
+        else:
+            name = "%s" % self.repository
 
         self.compute_layers()
         manifest = dict(name=name, tag=self.tag, architecture=self.config_layer['architecture'],
