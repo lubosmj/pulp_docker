@@ -1,3 +1,4 @@
+import os
 import base64
 import binascii
 import datetime
@@ -9,9 +10,97 @@ import logging
 from collections import namedtuple
 from jwkest import jws, jwk, ecc
 
+from django.core.exceptions import ObjectDoesNotExist
+from django.conf import settings
+
+from pulp_docker.constants import MEDIA_TYPE
+
 log = logging.getLogger(__name__)
 
 FS_Layer = namedtuple("FS_Layer", "layer_id uncompressed_digest history")
+
+
+def _convert_manifest(tag, accepted_media_types, path):
+    if tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_V2:
+        converted_schema = _convert_schema(tag.name, path, tag.tagged_manifest)
+        return converted_schema, True, tag.tagged_manifest.digest
+    elif tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_LIST:
+        legacy = _get_legacy_manifest(tag)
+        if legacy.media_type == MEDIA_TYPE.MANIFEST_V2:
+            converted_schema = _convert_schema(tag.name, path, legacy)
+            return converted_schema, True, legacy.digest
+        elif legacy.media_type in accepted_media_types:
+            # return legacy without conversion
+            return legacy, False, legacy.digest
+        else:
+            raise RuntimeError()
+
+
+def _convert_schema(tag_name, path, manifest):
+    schema1_converter = Schema1ConverterWrapper(tag_name, path)
+    config_dict = _get_config_dict(manifest)
+    manifest_dict = _get_manifest_dict(manifest)
+
+    schema1_converted = schema1_converter.convert(manifest_dict, config_dict)
+    return schema1_converted
+
+
+def _get_legacy_manifest(tag):
+    ml = tag.tagged_manifest.listed_manifests.all()
+    for manifest in ml:
+        m = manifest.manifest_lists.first()
+        if m.architecture == 'amd64' and m.os == 'linux':
+            return m.manifest_list
+
+    raise RuntimeError()
+
+
+def _get_config_dict(manifest):
+    try:
+        config_artifact = manifest.config_blob._artifacts.get()
+    except ObjectDoesNotExist:
+        raise RuntimeError()
+    return _get_dict(config_artifact)
+
+
+def _get_manifest_dict(manifest):
+    try:
+        manifest_artifact = manifest._artifacts.get()
+    except ObjectDoesNotExist:
+        raise RuntimeError()
+    return _get_dict(manifest_artifact)
+
+
+def _get_dict(artifact):
+    with open(os.path.join(settings.MEDIA_ROOT, artifact.file.path)) as json_file:
+        json_string = json_file.read()
+    return json.loads(json_string)
+
+
+class Schema1ConverterWrapper:
+    """An abstraction around creating new manifests of the format schema 1."""
+
+    def __init__(self, tag, path):
+        try:
+            namespace, repository = path.split("/")
+        except ValueError:
+            namespace = ""
+            repository = path
+
+        self.namespace = namespace
+        self.repository = repository
+        self.tag = tag
+
+    def convert(self, manifest, config):
+        """Convert a manifest to schema 1."""
+        converter = ConverterS2toS1(
+            manifest,
+            config,
+            namespace=self.namespace,
+            repository=self.repository,
+            tag=self.tag
+        )
+        return converter.convert()
 
 
 class ConverterS2toS1:
