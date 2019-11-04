@@ -251,20 +251,22 @@ def _convert_manifest(tag, accepted_media_types, path):
         return converted_schema, True, tag.tagged_manifest.digest
     elif tag.tagged_manifest.media_type == MEDIA_TYPE.MANIFEST_LIST:
         legacy = _get_legacy_manifest(tag)
-        if legacy.media_type == MEDIA_TYPE.MANIFEST_V2 and legacy.media_type not in accepted_media_types:
+        if legacy.media_type == MEDIA_TYPE.MANIFEST_V2:
             converted_schema = _convert_schema(tag.name, path, legacy)
             return converted_schema, True, legacy.digest
-        else:
+        elif legacy.media_type in accepted_media_types:
             # return legacy without conversion
             return legacy, False, legacy.digest
+        else:
+            raise RuntimeError()
 
 
 def _convert_schema(tag_name, path, manifest):
-    schema1_builder = Schema1ConverterWrapper(tag_name, path)
+    schema1_converter = Schema1ConverterWrapper(tag_name, path)
     config_dict = _get_config_dict(manifest)
     manifest_dict = _get_manifest_dict(manifest)
 
-    schema1_converted = schema1_builder.convert(manifest_dict, config_dict)
+    schema1_converted = schema1_converter.convert(manifest_dict, config_dict)
     return schema1_converted
 
 
